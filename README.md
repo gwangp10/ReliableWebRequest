@@ -2,7 +2,7 @@
 
 “지금이라면 이렇게 짠다”라는 관점에서 구매 영수증 전송을 다시 설계하는 개인 코드 샘플입니다. 이전 회사 프로젝트에서 경험한 무제한 재시도, 응답 지연에 따른 중복 요청, HTTP 상태 확인 누락, 예외 발생 시 데이터 유실, 자원 정리 누락, 민감 정보 로그 노출, 취소 처리 문제를 일반화했습니다. 회사 코드나 자산은 포함하지 않습니다.
 
-English summary: A reliable purchase submission library with deterministic idempotency keys, a write-ahead outbox, bounded retries, explicit cancellation and timeout handling, and redacted logging. All 97 specification tests pass. Targets netstandard2.1; Unity integration is not verified.
+English summary: A reliable purchase submission library with deterministic idempotency keys, a write-ahead outbox, bounded retries, explicit cancellation and timeout handling, and redacted logging. All 115 specification tests pass. Targets netstandard2.1; Unity integration is not verified.
 
 ## 기능
 
@@ -31,12 +31,13 @@ tests/ReliableWebRequest.Tests/
   FlushOutboxTests.cs              재전송, 누적 한도, 부분 결과
   Fakes.cs                         수동 시간·취소·전송·저장소 테스트 대역
 docs/
+  spec.md                         현재 동작 명세와 설계 규칙
   design.md                       전송 순서와 상태 처리
   server-contract.md              서버 멱등 처리 및 HTTP 응답 계약
-  spec-test-map.md                명세와 97개 실행 케이스 매핑
+  spec-test-map.md                명세와 115개 실행 케이스 매핑
 ```
 
-[설계](docs/design.md), [서버 계약](docs/server-contract.md), [명세별 테스트](docs/spec-test-map.md)에서 상세 동작을 확인할 수 있습니다.
+[동작 명세](docs/spec.md), [설계](docs/design.md), [서버 계약](docs/server-contract.md), [명세별 테스트](docs/spec-test-map.md)에서 상세 동작을 확인할 수 있습니다.
 
 ## 빌드와 테스트
 
@@ -48,7 +49,7 @@ dotnet build
 dotnet test
 ```
 
-검증 결과: 빌드 오류 0개, 경고 0개. 테스트 97개 통과, 실패 0개, 건너뜀 0개입니다.
+검증 결과: 빌드 오류 0개, 경고 0개. 테스트 115개 통과, 실패 0개, 건너뜀 0개입니다.
 
 ## 주요 설계 결정
 

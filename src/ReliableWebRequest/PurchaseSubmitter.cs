@@ -216,7 +216,7 @@ namespace ReliableWebRequest
                 WriteLog(LogLevel.Error, $"Idempotency conflict: key={progress.Item.IdempotencyKey}");
         }
 
-        // W4: 인라인 전송과 flush에 동일한 예약 규칙을 적용한다.
+        // D4: 인라인 전송과 flush에 동일한 예약 규칙을 적용한다.
         private TimeSpan ScheduleNextAttempt(SubmissionProgress progress)
         {
             var response = progress.Outcome?.Response;
@@ -252,7 +252,7 @@ namespace ReliableWebRequest
                     progress.IsPersisted = true;
             }
 
-            // W1: 확정된 결과, 호출자 취소, 저장 실패 순서로 우선한다.
+            // D1: 확정된 결과, 호출자 취소, 저장 실패 순서로 우선한다.
             var kind = progress.Decision == RetryDecision.Succeed ? SubmitResultKind.Succeeded
                 : progress.Decision == RetryDecision.RejectPermanently ? SubmitResultKind.RejectedPermanently
                 : ct.IsCancellationRequested ? SubmitResultKind.Canceled

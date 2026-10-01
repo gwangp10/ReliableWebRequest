@@ -162,7 +162,7 @@ namespace ReliableWebRequest.Tests
     [TestFixture]
     public sealed class AttemptTimeoutFactoryTests
     {
-        [TestCase(true), TestCase(false)] // S8, W6: 실제 팩터리 계약
+        [TestCase(true), TestCase(false)] // S8, D6: 실제 팩터리 계약
         public async Task TimeoutFactory_LinksCallerAndSchedulesTimeout(bool cancelCaller)
         {
             using var caller = new CancellationTokenSource();
@@ -193,7 +193,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(p.MaxOutboxAttempts, Is.EqualTo(20));
             Assert.That(p.MaxInlineRetryAfter, Is.EqualTo(TimeSpan.FromSeconds(30)));
         }
-        [Test] // Contract.SubmitResult: V11에 따라 팩터리 대신 생성자를 검증한다.
+        [Test] // Contract.SubmitResult: D10의 생성자 값 보존을 검증한다.
         public void SubmitResult_Constructor_PreservesAllValues()
         {
             foreach (var kind in Enum.GetValues<SubmitResultKind>())

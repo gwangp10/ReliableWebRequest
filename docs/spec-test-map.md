@@ -1,6 +1,6 @@
 # 명세 → 테스트 메서드
 
-최종 규칙 W1–W7과 W3의 대기 중 취소 개정을 적용했습니다. **62개 테스트 메서드**이며 `[TestCase]` 행을 확장하면 115개 실행 케이스입니다. 최신 명세 ID에 테스트가 없는 항목은 없습니다. S11f는 W1에서 명시적으로 대체되었으며 폐기된 동작을 별도로 강제하지 않습니다. Contract의 SubmitResult 팩터리 테스트는 V11에 따라 생성자 테스트로 대체했습니다.
+[동작 명세](spec.md)의 설계 규칙 D1–D10과 테스트 계약을 연결합니다. **62개 테스트 메서드**이며 `[TestCase]` 행을 확장하면 115개 실행 케이스입니다. S11f의 초기 저장 실패 계약은 S15a–e로 검증합니다. 데이터 생성자 계약은 D10에 정의합니다.
 
 메서드는 `tests/ReliableWebRequest.Tests/`의 ComponentTests.cs, PurchaseSubmitterTests.cs, FlushOutboxTests.cs, ReviewRegressionTests.cs에 있습니다. 아래 표에서 괄호는 TestCase 인자입니다.
 
@@ -47,7 +47,7 @@
 | S11c | Flush_CumulativeLimit_StallsAndWarnsWithoutDeleting |
 | S11d | Flush_RepeatedUpserts_NeverDuplicateAndStopAtCumulativeLimit |
 | S11e | Flush_NewInstance_ResumesWithOriginalStoredKey |
-| S11f | W1에 의해 S15a–e로 대체. 특히 Submit_InitialSaveFails_FinalPersistenceDeterminesDeferredKind |
+| S11f | D1의 초기 저장 실패 계약: S15a–e. 특히 Submit_InitialSaveFails_FinalPersistenceDeterminesDeferredKind |
 | S11g | Flush_RetryAfter_SchedulesExactlyWithoutInlineDelay(503, "120", 120) |
 | S11h | Flush_RetryAfter_SchedulesExactlyWithoutInlineDelay(429, "3", 3) |
 | S11i | Flush_ItemStoreFailure_CountsOutcomeAndContinues(200); 추가 400/503 행으로 제거/저장 실패 검사 |
@@ -64,27 +64,32 @@
 | Contract.RetryPolicy | RetryPolicy_Default_HasSpecifiedConstants (values only; no instance identity requirement) |
 | Contract.SubmitResult | SubmitResult_Constructor_PreservesAllValues |
 
-최종 규칙의 추가 경계도 테스트합니다.
+설계 규칙의 추가 경계도 테스트합니다.
 
 | 규칙 | 테스트 메서드 / 검증 내용 |
 |---|---|
-| W1 | S15a–e; Submit_RemoveFails_PreservesOutcomeAndOnlyKnownPersistence(false, 200)/(true, 400); Submit_FinalUpdateFails_RetainsKnownPersistenceAndWarns |
-| W2 | S3, S16; Submit_GetFails_SkipsInitialSaveAndRecoversWithFinalUpsert |
-| W3 | S5, S7, S7b; Flush_RepeatedUpserts_NeverDuplicateAndStopAtCumulativeLimit; Flush_CallerCancelsInFlight_ReturnsPartialCountsAndKeepsUnsentItems |
-| W4 | Submit_ConfiguredMaxAttempts_LimitsSendsDelaysAndStoredCount(1/2); S6a–e, S11a/g/h, S9, S13 |
-| W5 | Flush_LoadFailure_PropagatesBeforeAnySend; Flush_ItemStoreFailure_CountsOutcomeAndContinues |
-| W6 | TimeoutFactory_LinksCallerAndSchedulesTimeout(true: initially uncanceled with 10-minute timeout, then caller cancellation / false: real 50ms timeout, wait up to 5s); S7b, S8; Submit_RetriesOn503_ThenSucceedsWithBackoff; flush disposal checks |
-| W7 | K1 UTF-8 vectors; S1 shared call journal; Submit_PendingWriteAheadSave_DoesNotSendUntilSaveCompletes; S4b |
+| D1 | S15a–e; Submit_RemoveFails_PreservesOutcomeAndOnlyKnownPersistence(false, 200)/(true, 400); Submit_FinalUpdateFails_RetainsKnownPersistenceAndWarns |
+| D2 | S1 shared call journal; Submit_PendingWriteAheadSave_DoesNotSendUntilSaveCompletes; S3, S16; Submit_GetFails_SkipsInitialSaveAndRecoversWithFinalUpsert |
+| D3 | S5, S7, S7b; Flush_RepeatedUpserts_NeverDuplicateAndStopAtCumulativeLimit; Flush_CallerCancelsInFlight_ReturnsPartialCountsAndKeepsUnsentItems |
+| D4 | Submit_ConfiguredMaxAttempts_LimitsSendsDelaysAndStoredCount(1/2); S6a–e, S11a/g/h, S9, S13 |
+| D5 | Flush_LoadFailure_PropagatesBeforeAnySend; Flush_ItemStoreFailure_CountsOutcomeAndContinues |
+| D6 | TimeoutFactory_LinksCallerAndSchedulesTimeout(true: initially uncanceled with 10-minute timeout, then caller cancellation / false: real 50ms timeout, wait up to 5s); S7b, S8; Submit_RetriesOn503_ThenSucceedsWithBackoff; flush disposal checks |
+| D7 | K1 UTF-8 vectors; S3, S11e |
+| D8 | C1–C4; S9, S13, S4b |
+| D9 | L1–L4; S10, S14; 코드 리뷰 회귀 테스트의 로그 격리·마스킹 |
+| D10 | Contract.RetryPolicy; Contract.SubmitResult |
 
-코드 리뷰 회귀 테스트(ReviewRegressionTests.cs):
+## 코드 리뷰 회귀 테스트
 
-| 리뷰 항목 / 규칙 | 새 테스트 메서드 | 실행 케이스 / 검증 내용 |
+`ReviewRegressionTests.cs`의 검증입니다.
+
+| 설계 규칙 | 테스트 메서드 | 실행 케이스 / 검증 내용 |
 |---|---|---|
-| 1 / W1, W5 | ThrowingLogger_DoesNotInterruptPersistenceResultsOrFlushProgress | 1: 로그가 항상 던져도 초기 저장 실패 이후 최종 저장·제거·결과 반환 및 저장소 오류 이후 flush 진행 |
-| 2 / W1 | DependencyFailure_PreservesConfirmedOutcomeOrPerformsFinalUpsert | 10: 대기 실패, 첫 시계 조회 실패, 전송 후 시계 실패; 성공/거절 유지, 최종 upsert 성공/실패, 이전 시각 사용, flush 최종 처리 |
-| 3 / W3 개정, W4 | CancelDuringInlineWait_PreservesScheduleAndFlushSkipsUntilDue | 2: Retry-After와 백오프 대기 중 취소 시 NextAttemptAt 보존 및 기한 전 flush 건너뛰기 |
-| 4 / W4 | UnrepresentableRetryAfter_FallsBackToBackoffWithoutStoppingProgress | 2: 파서가 허용하되 날짜 범위를 넘는 지연을 Submit/Flush 예약에서 백오프로 대체 |
-| 5 / L1–L4 | Redactor_DecodesNestedSensitiveNamesAndPreservesJsonAndFormBoundaries | 1: 이스케이프·대소문자·중첩 속성명, 비문자열 민감 값, JSON 안의 form 문자열, 구분자 보존과 멱등성 |
-| 6 / W3, W5 | Flush_CancellationBeforeSend_DoesNotCountOrResaveUnsentItem | 2: 앞선 성공 0/1건 이후 전송 직전 취소, 기존 집계만 반환, 미전송 항목 무변경 및 CTS 해제 |
+| D9, D1, D5 | ThrowingLogger_DoesNotInterruptPersistenceResultsOrFlushProgress | 1: 로그가 항상 던져도 초기 저장 실패 이후 최종 저장·제거·결과 반환 및 저장소 오류 이후 flush 진행 |
+| D1 | DependencyFailure_PreservesConfirmedOutcomeOrPerformsFinalUpsert | 10: 대기 실패, 첫 시계 조회 실패, 전송 후 시계 실패; 성공/거절 유지, 최종 upsert 성공/실패, 이전 시각 사용, flush 최종 처리 |
+| D3, D4 | CancelDuringInlineWait_PreservesScheduleAndFlushSkipsUntilDue | 2: Retry-After와 백오프 대기 중 취소 시 NextAttemptAt 보존 및 기한 전 flush 건너뛰기 |
+| D4 | UnrepresentableRetryAfter_FallsBackToBackoffWithoutStoppingProgress | 2: 파서가 허용하되 날짜 범위를 넘는 지연을 Submit/Flush 예약에서 백오프로 대체 |
+| D9, L1–L4 | Redactor_DecodesNestedSensitiveNamesAndPreservesJsonAndFormBoundaries | 1: 이스케이프·대소문자·중첩 속성명, 비문자열 민감 값, JSON 안의 form 문자열, 구분자 보존과 멱등성 |
+| D3, D5 | Flush_CancellationBeforeSend_DoesNotCountOrResaveUnsentItem | 2: 앞선 성공 0/1건 이후 전송 직전 취소, 기존 집계만 반환, 미전송 항목 무변경 및 CTS 해제 |
 
-W3 개정은 전송 전/중 취소의 `NextAttemptAt = now`를 유지하고, **인라인 대기 중 취소만 기존 예약 시각을 보존**합니다. 기존 S7 테스트는 대기 중 기한을 단정하지 않았으므로 기존 assertion 변경 없이 새 회귀 테스트로 보완했습니다.
+D3에 따라 전송 전/중 취소는 `NextAttemptAt = now`이며, **인라인 대기 중 취소는 기존 예약 시각을 보존**합니다.

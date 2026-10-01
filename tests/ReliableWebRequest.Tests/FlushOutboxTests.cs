@@ -5,7 +5,7 @@ namespace ReliableWebRequest.Tests
     [TestFixture]
     public sealed class FlushOutboxTests
     {
-        [Test] // S11a, S11, W3, W4
+        [Test] // S11a, S11, D3, D4
         public async Task Flush_OrdersByCreation_RemovesFinalOutcomesAndUpdatesOthers()
         {
             var f = new Fixture();
@@ -43,7 +43,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.SaveCalls, Is.Zero);
         }
 
-        [Test] // S11c, W3
+        [Test] // S11c, D3
         public async Task Flush_CumulativeLimit_StallsAndWarnsWithoutDeleting()
         {
             var f = new Fixture(); var original = f.Seed("limit", 20);
@@ -54,7 +54,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [Test] // S11d, W3: 인라인 5회 + flush 15회 = 총 20회
+        [Test] // S11d, D3: 인라인 5회 + flush 15회 = 총 20회
         public async Task Flush_RepeatedUpserts_NeverDuplicateAndStopAtCumulativeLimit()
         {
             var f = new Fixture();
@@ -103,7 +103,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items["saved-key"].NextAttemptAt, Is.EqualTo(f.Clock.UtcNow.AddSeconds(seconds)));
         }
 
-        [TestCase(200), TestCase(400), TestCase(503)] // S11i, W5: 제거 및 저장 실패
+        [TestCase(200), TestCase(400), TestCase(503)] // S11i, D5: 제거 및 저장 실패
         public async Task Flush_ItemStoreFailure_CountsOutcomeAndContinues(int firstStatus)
         {
             var f = new Fixture(); f.Seed("first", createdSeconds: -1); f.Seed("second");
@@ -120,7 +120,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [Test] // W5
+        [Test] // D5
         public void Flush_LoadFailure_PropagatesBeforeAnySend()
         {
             var f = new Fixture(); f.Outbox.FailLoad = true;
@@ -129,7 +129,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Transport.Requests, Is.Empty);
         }
 
-        [Test] // S11 취소, S7b, W3, W6
+        [Test] // S11 취소, S7b, D3, D6
         public async Task Flush_CallerCancelsInFlight_ReturnsPartialCountsAndKeepsUnsentItems()
         {
             var f = new Fixture();

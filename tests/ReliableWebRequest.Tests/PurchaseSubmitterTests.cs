@@ -6,7 +6,7 @@ namespace ReliableWebRequest.Tests
     [TestFixture]
     public sealed class PurchaseSubmitterTests
     {
-        [Test] // S1, W7
+        [Test] // S1, D2
         public async Task Submit_FirstSuccess_CompletesWriteAheadBeforeSend()
         {
             var f = new Fixture();
@@ -30,7 +30,7 @@ namespace ReliableWebRequest.Tests
             f.AssertDisposed(1);
         }
 
-        [Test] // S1, W7
+        [Test] // S1, D2
         public async Task Submit_PendingWriteAheadSave_DoesNotSendUntilSaveCompletes()
         {
             var f = new Fixture();
@@ -104,7 +104,7 @@ namespace ReliableWebRequest.Tests
             }
         }
 
-        [Test] // S5, W3
+        [Test] // S5, D3
         public async Task Submit_ExhaustsFiveAttempts_PersistsOneItemAndFinalSchedule()
         {
             var f = new Fixture();
@@ -126,7 +126,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(item.LastReason, Is.Not.Null.And.Not.Empty);
         }
 
-        [TestCase(1), TestCase(2)] // S5, W4
+        [TestCase(1), TestCase(2)] // S5, D4
         public async Task Submit_ConfiguredMaxAttempts_LimitsSendsDelaysAndStoredCount(int maxAttempts)
         {
             var f = new Fixture { Policy = Fixture.PolicyWith(maxAttempts: maxAttempts) };
@@ -194,7 +194,7 @@ namespace ReliableWebRequest.Tests
             else Assert.That(f.Delay.Tokens, Is.EqualTo(new[] { caller.Token }));
         }
 
-        [Test] // S7b, W3, W6
+        [Test] // S7b, D3, D6
         public async Task Submit_CallerCancellationDuringSend_CountsAttemptAndDisposesSource()
         {
             var f = new Fixture(); var transport = new PendingUntilCanceledTransport();
@@ -217,7 +217,7 @@ namespace ReliableWebRequest.Tests
             finally { caller.Cancel(); }
         }
 
-        [Test] // S8, W6
+        [Test] // S8, D6
         public async Task Submit_AttemptTimeout_RetriesWithoutCancelingCallerAndDisposesAllSources()
         {
             var f = new Fixture(); var transport = new PendingUntilCanceledTransport();
@@ -255,7 +255,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(item.NextAttemptAt, Is.EqualTo(f.Clock.UtcNow.AddSeconds(1)));
         }
 
-        [Test] // S10, V10 및 V3의 전송 오류 정규화
+        [Test] // S10, D9 및 D8의 전송 오류 정규화
         public async Task Submit_ResponseAndExceptionSecrets_NeverAppearInRetryLogs()
         {
             var f = new Fixture();
@@ -351,7 +351,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [TestCase(true), TestCase(false)] // S15c, S15d: S11f를 대체한다.
+        [TestCase(true), TestCase(false)] // S15c, S15d, S11f: 최종 저장 상태를 검증한다.
         public async Task Submit_InitialSaveFails_FinalPersistenceDeterminesDeferredKind(bool laterSaveSucceeds)
         {
             var f = new Fixture(); f.Outbox.FailSave = n => n == 1 || !laterSaveSucceeds;
@@ -367,7 +367,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [TestCase(true, 200), TestCase(false, 200), TestCase(true, 400)] // S15e, W1의 개정된 제거 규칙
+        [TestCase(true, 200), TestCase(false, 200), TestCase(true, 400)] // S15e, D1의 제거 규칙
         public async Task Submit_RemoveFails_PreservesOutcomeAndOnlyKnownPersistence(bool initialSaveSucceeds, int status)
         {
             var f = new Fixture();
@@ -404,7 +404,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items[Fixture.AbcKey], Is.SameAs(original), "Immutable data: same instance preserves every field");
         }
 
-        [Test] // W2의 조회 실패, W1의 최종 저장 성공
+        [Test] // D2의 조회 실패, D1의 최종 저장 성공
         public async Task Submit_GetFails_SkipsInitialSaveAndRecoversWithFinalUpsert()
         {
             var f = new Fixture(); f.Outbox.FailGet = true; f.Transport.Respond(202);
@@ -417,7 +417,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [Test] // W1: 최종 갱신 실패 시 저장된 이전 횟수를 허용한다.
+        [Test] // D1: 최종 갱신 실패 시 저장된 이전 횟수를 허용한다.
         public async Task Submit_FinalUpdateFails_RetainsKnownPersistenceAndWarns()
         {
             var f = new Fixture(); f.Outbox.FailSave = n => n > 1; f.Transport.Respond(202);
