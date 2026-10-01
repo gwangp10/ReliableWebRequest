@@ -47,7 +47,8 @@ namespace ReliableWebRequest
         /// 나머지 예외는 타입 이름을 사유로 보관한다. 매 시도 CTS는 Dispose한다.
         /// 429/503의 유효 Retry-After를 그대로 사용하며 그 외에는 누적 횟수의 백오프로 예약한다.
         /// 마지막 시도 또는 인라인 한도 초과 지연은 기다리지 않는다. StopKeep도 백오프로 예약한다.
-        /// 전송 전/중 호출자 취소의 다음 기한은 현재 시각이다. 각 시도와 최종 결과를 로그에 남기며,
+        /// 전송 전/중 호출자 취소의 다음 기한은 현재 시각이며, 인라인 대기 중 취소는 예약 기한을 보존한다.
+        /// 각 시도와 최종 결과를 로그에 남기며,
         /// 409는 키를 포함한 Error 로그 한 줄을 추가한다. 본문과 예외 메시지는 로그에 넣지 않는다.</remarks>
         public async Task<SubmitResult> SubmitAsync(PurchaseReceipt receipt, CancellationToken ct)
         {
@@ -56,12 +57,26 @@ namespace ReliableWebRequest
             if (lookup.Item != null)
                 return LogResult(key, new SubmitResult(SubmitResultKind.DeferredToOutbox, null, "already pending", true));
 
-            var now = clock.UtcNow;
+            // 시계의 첫 조회부터 실패해도 최종 저장에 사용할 시각을 확보한다.
+            var now = DateTimeOffset.UtcNow;
             var progress = new SubmissionProgress(new PendingSubmission(key, receipt, now, 0, now, null));
-            if (lookup.Succeeded)
-                progress.IsPersisted = await PersistAsync(progress.Item).ConfigureAwait(false);
+            try
+            {
+                now = ReadNow(progress);
+                progress.Item = new PendingSubmission(key, receipt, now, 0, now, null);
+                if (lookup.Succeeded)
+                    progress.IsPersisted = await PersistAsync(progress.Item).ConfigureAwait(false);
 
-            await SendInlineAsync(progress, ct).ConfigureAwait(false);
+                await SendInlineAsync(progress, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                MarkCanceled(progress);
+            }
+            catch (Exception error)
+            {
+                MarkDependencyFailure(progress, error);
+            }
             return await ResolveResultAsync(progress, ct).ConfigureAwait(false);
         }
 
@@ -84,28 +99,33 @@ namespace ReliableWebRequest
             {
                 if (ct.IsCancellationRequested)
                     break;
-                if (item.NextAttemptAt > clock.UtcNow)
-                {
-                    skipped++;
-                    continue;
-                }
-                if (item.AttemptCount >= policy.MaxOutboxAttempts)
-                {
-                    stalled++;
-                    WriteLog(LogLevel.Warning, $"Outbox stalled: key={item.IdempotencyKey}");
-                    continue;
-                }
-
                 var progress = new SubmissionProgress(item);
                 try
                 {
+                    if (item.NextAttemptAt > ReadNow(progress))
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    if (item.AttemptCount >= policy.MaxOutboxAttempts)
+                    {
+                        stalled++;
+                        WriteLog(LogLevel.Warning, $"Outbox stalled: key={item.IdempotencyKey}");
+                        continue;
+                    }
                     await SendOnceAsync(progress, ct).ConfigureAwait(false);
                     if (!IsFinal(progress.Decision))
                         ScheduleNextAttempt(progress);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
+                    if (progress.Item.AttemptCount == item.AttemptCount)
+                        break;
                     MarkCanceled(progress);
+                }
+                catch (Exception error)
+                {
+                    MarkDependencyFailure(progress, error);
                 }
 
                 bool stored;
@@ -117,7 +137,7 @@ namespace ReliableWebRequest
                 }
                 else
                 {
-                    remaining++;
+                    if (progress.Item.AttemptCount > item.AttemptCount) remaining++;
                     stored = await PersistAsync(progress.Item).ConfigureAwait(false);
                 }
                 if (!stored) storeErrors++;
@@ -128,38 +148,38 @@ namespace ReliableWebRequest
 
         private async Task SendInlineAsync(SubmissionProgress progress, CancellationToken ct)
         {
-            try
+            var scheduledDelay = TimeSpan.Zero;
+            while (ShouldContinueInline(progress, scheduledDelay))
             {
-                while (progress.Item.AttemptCount < policy.MaxAttempts &&
-                    progress.Item.AttemptCount < policy.MaxOutboxAttempts)
+                if (progress.Item.AttemptCount > 0)
                 {
-                    await SendOnceAsync(progress, ct).ConfigureAwait(false);
-                    if (IsFinal(progress.Decision))
-                        return;
-
-                    var scheduledDelay = ScheduleNextAttempt(progress);
-                    if (progress.Decision != RetryDecision.Retry ||
-                        progress.Item.AttemptCount >= policy.MaxAttempts ||
-                        progress.Item.AttemptCount >= policy.MaxOutboxAttempts ||
-                        scheduledDelay > policy.MaxInlineRetryAfter)
-                        return;
-
-                    // A timed-out attempt must not cancel the wait for the next attempt.
+                    // 시도 타임아웃은 다음 대기를 취소하지 않는다. 대기 중 취소는 예약을 보존한다.
+                    progress.IsWaiting = true;
                     await delay.DelayAsync(scheduledDelay, ct).ConfigureAwait(false);
+                    ct.ThrowIfCancellationRequested();
+                    progress.IsWaiting = false;
                 }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                MarkCanceled(progress);
+
+                await SendOnceAsync(progress, ct).ConfigureAwait(false);
+                if (IsFinal(progress.Decision))
+                    return;
+                scheduledDelay = ScheduleNextAttempt(progress);
             }
         }
+
+        private bool ShouldContinueInline(SubmissionProgress progress, TimeSpan scheduledDelay) =>
+            progress.Item.AttemptCount < policy.MaxAttempts &&
+            progress.Item.AttemptCount < policy.MaxOutboxAttempts &&
+            (progress.Item.AttemptCount == 0 || progress.Decision == RetryDecision.Retry) &&
+            scheduledDelay <= policy.MaxInlineRetryAfter;
 
         private async Task SendOnceAsync(SubmissionProgress progress, CancellationToken ct)
         {
             var request = CreateRequest(progress.Item);
             using var source = timeouts.Create(policy.PerAttemptTimeout, ct);
+            var now = ReadNow(progress);
             ct.ThrowIfCancellationRequested();
-            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount + 1, clock.UtcNow, null);
+            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount + 1, now, null);
 
             AttemptOutcome outcome;
             try
@@ -190,26 +210,29 @@ namespace ReliableWebRequest
             var reason = outcome.Response != null
                 ? $"HTTP {outcome.Response.StatusCode}"
                 : outcome.Exception?.GetType().Name ?? outcome.Kind.ToString();
-            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount, clock.UtcNow, reason);
+            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount, ReadNow(progress), reason);
             LogAttempt(progress.Item, outcome.Kind.ToString());
             if (outcome.Response?.StatusCode == 409)
                 WriteLog(LogLevel.Error, $"Idempotency conflict: key={progress.Item.IdempotencyKey}");
         }
 
-        // W4: both inline submission and flush use this one scheduling rule.
+        // W4: 인라인 전송과 flush에 동일한 예약 규칙을 적용한다.
         private TimeSpan ScheduleNextAttempt(SubmissionProgress progress)
         {
             var response = progress.Outcome?.Response;
+            var now = ReadNow(progress);
             TimeSpan scheduledDelay;
             if (progress.Decision == RetryDecision.Retry && response != null &&
                 (response.StatusCode == 429 || response.StatusCode == 503) &&
-                RetryAfterParser.TryParse(response.Headers, clock, out var retryAfter))
+                RetryAfterParser.TryParse(response.Headers, clock, out var retryAfter) &&
+                // 날짜 범위를 넘는 Retry-After는 무효로 보고 백오프로 대체한다.
+                retryAfter <= DateTimeOffset.MaxValue - now)
                 scheduledDelay = retryAfter;
             else
                 scheduledDelay = BackoffCalculator.GetDelay(progress.Item.AttemptCount, policy, random);
 
             progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount,
-                clock.UtcNow + scheduledDelay, progress.Item.LastReason);
+                now + scheduledDelay, progress.Item.LastReason);
             return scheduledDelay;
         }
 
@@ -217,7 +240,7 @@ namespace ReliableWebRequest
         {
             if (IsFinal(progress.Decision))
             {
-                // A failed remove cannot establish persistence or erase a known saved record.
+                // 제거 실패는 저장 여부를 새로 확정하거나 기존 저장 사실을 지우지 않는다.
                 if (await RemoveAsync(progress.Item.IdempotencyKey).ConfigureAwait(false))
                     progress.IsPersisted = false;
             }
@@ -229,7 +252,7 @@ namespace ReliableWebRequest
                     progress.IsPersisted = true;
             }
 
-            // W1: confirmed outcomes outrank cancellation, which outranks persistence failures.
+            // W1: 확정된 결과, 호출자 취소, 저장 실패 순서로 우선한다.
             var kind = progress.Decision == RetryDecision.Succeed ? SubmitResultKind.Succeeded
                 : progress.Decision == RetryDecision.RejectPermanently ? SubmitResultKind.RejectedPermanently
                 : ct.IsCancellationRequested ? SubmitResultKind.Canceled
@@ -299,7 +322,23 @@ namespace ReliableWebRequest
 
         private void MarkCanceled(SubmissionProgress progress)
         {
-            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount, clock.UtcNow, "caller canceled");
+            var nextAttemptAt = progress.Item.NextAttemptAt;
+            if (!progress.IsWaiting)
+            {
+                try { ReadNow(progress); }
+                catch (Exception) { /* 시계 실패가 호출자 취소 처리를 막지 않도록 이전 시각을 쓴다. */ }
+                nextAttemptAt = progress.LastObservedAt;
+            }
+            progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount, nextAttemptAt, "caller canceled");
+        }
+
+        private DateTimeOffset ReadNow(SubmissionProgress progress) => progress.LastObservedAt = clock.UtcNow;
+
+        private static void MarkDependencyFailure(SubmissionProgress progress, Exception error)
+        {
+            if (!IsFinal(progress.Decision))
+                progress.Item = CopyItem(progress.Item, progress.Item.AttemptCount,
+                    progress.LastObservedAt, error.GetType().Name);
         }
 
         private static PendingSubmission CopyItem(PendingSubmission item, int attempts, DateTimeOffset nextAttemptAt, string? reason) =>
@@ -317,11 +356,15 @@ namespace ReliableWebRequest
             return result;
         }
 
-        // Bodies and exception messages may contain unstructured secrets; log only metadata.
+        // 본문과 예외 메시지에는 민감 정보가 있을 수 있으므로 메타데이터만 기록한다.
         private void LogStoreError(string operation, string key, Exception error) =>
             WriteLog(LogLevel.Warning, $"Outbox {operation} failed: {error.GetType().Name}, key={key}");
 
-        private void WriteLog(LogLevel level, string message) => log.Write(level, LogRedactor.Redact(message));
+        private void WriteLog(LogLevel level, string message)
+        {
+            try { log.Write(level, LogRedactor.Redact(message)); }
+            catch (Exception) { /* 로그 실패가 저장, 제거 및 결과 반환을 중단해서는 안 된다. */ }
+        }
 
         private sealed class SubmissionProgress
         {
@@ -329,8 +372,14 @@ namespace ReliableWebRequest
             public AttemptOutcome? Outcome { get; set; }
             public RetryDecision Decision { get; set; } = RetryDecision.StopKeep;
             public bool IsPersisted { get; set; }
+            public bool IsWaiting { get; set; }
+            public DateTimeOffset LastObservedAt { get; set; }
 
-            public SubmissionProgress(PendingSubmission item) => Item = item;
+            public SubmissionProgress(PendingSubmission item)
+            {
+                Item = item;
+                LastObservedAt = DateTimeOffset.UtcNow;
+            }
         }
     }
 }

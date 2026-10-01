@@ -83,7 +83,7 @@ namespace ReliableWebRequest
         public DateTimeOffset CreatedAt { get; }
         /// <summary>시작한 SendAsync 횟수, 취소 및 타임아웃 시도도 포함.</summary>
         public int AttemptCount { get; }
-        /// <summary>현재 시각 + 예약 지연. 전송 전/중 호출자 취소는 현재 시각.</summary>
+        /// <summary>현재 시각 + 예약 지연. 전송 전/중 호출자 취소는 현재 시각이며 대기 중 취소는 예약을 보존한다.</summary>
         public DateTimeOffset NextAttemptAt { get; }
         /// <summary>마지막 보류 사유.</summary>
         public string? LastReason { get; }

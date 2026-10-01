@@ -54,7 +54,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [Test] // S11d, W3: 5 inline + 15 flush attempts = 20 total
+        [Test] // S11d, W3: 인라인 5회 + flush 15회 = 총 20회
         public async Task Flush_RepeatedUpserts_NeverDuplicateAndStopAtCumulativeLimit()
         {
             var f = new Fixture();
@@ -103,7 +103,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items["saved-key"].NextAttemptAt, Is.EqualTo(f.Clock.UtcNow.AddSeconds(seconds)));
         }
 
-        [TestCase(200), TestCase(400), TestCase(503)] // S11i, W5: remove and save failures
+        [TestCase(200), TestCase(400), TestCase(503)] // S11i, W5: 제거 및 저장 실패
         public async Task Flush_ItemStoreFailure_CountsOutcomeAndContinues(int firstStatus)
         {
             var f = new Fixture(); f.Seed("first", createdSeconds: -1); f.Seed("second");
@@ -129,7 +129,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Transport.Requests, Is.Empty);
         }
 
-        [Test] // S11 cancellation, S7b, W3, W6
+        [Test] // S11 취소, S7b, W3, W6
         public async Task Flush_CallerCancelsInFlight_ReturnsPartialCountsAndKeepsUnsentItems()
         {
             var f = new Fixture();

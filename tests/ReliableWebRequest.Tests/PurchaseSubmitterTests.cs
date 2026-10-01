@@ -176,7 +176,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items[Fixture.AbcKey].AttemptCount, Is.EqualTo(5));
         }
 
-        [TestCase(false), TestCase(true)] // S7: before send / during delay
+        [TestCase(false), TestCase(true)] // S7: 전송 전 / 대기 중 취소
         public async Task Submit_CallerCancellationBeforeSendOrInDelay_ReturnsCanceledAndKeepsItem(bool duringDelay)
         {
             var f = new Fixture();
@@ -255,7 +255,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(item.NextAttemptAt, Is.EqualTo(f.Clock.UtcNow.AddSeconds(1)));
         }
 
-        [Test] // S10, V10; also transport-error normalization from V3
+        [Test] // S10, V10 및 V3의 전송 오류 정규화
         public async Task Submit_ResponseAndExceptionSecrets_NeverAppearInRetryLogs()
         {
             var f = new Fixture();
@@ -351,7 +351,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [TestCase(true), TestCase(false)] // S15c, S15d; replaces S11f
+        [TestCase(true), TestCase(false)] // S15c, S15d: S11f를 대체한다.
         public async Task Submit_InitialSaveFails_FinalPersistenceDeterminesDeferredKind(bool laterSaveSucceeds)
         {
             var f = new Fixture(); f.Outbox.FailSave = n => n == 1 || !laterSaveSucceeds;
@@ -367,7 +367,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [TestCase(true, 200), TestCase(false, 200), TestCase(true, 400)] // S15e, W1 corrected remove rule
+        [TestCase(true, 200), TestCase(false, 200), TestCase(true, 400)] // S15e, W1의 개정된 제거 규칙
         public async Task Submit_RemoveFails_PreservesOutcomeAndOnlyKnownPersistence(bool initialSaveSucceeds, int status)
         {
             var f = new Fixture();
@@ -404,7 +404,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items[Fixture.AbcKey], Is.SameAs(original), "Immutable data: same instance preserves every field");
         }
 
-        [Test] // W2 degraded lookup, W1 successful final save
+        [Test] // W2의 조회 실패, W1의 최종 저장 성공
         public async Task Submit_GetFails_SkipsInitialSaveAndRecoversWithFinalUpsert()
         {
             var f = new Fixture(); f.Outbox.FailGet = true; f.Transport.Respond(202);
@@ -417,7 +417,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Log.Entries.Any(e => e.Level == LogLevel.Warning), Is.True);
         }
 
-        [Test] // W1: stale counters allowed after failed final update
+        [Test] // W1: 최종 갱신 실패 시 저장된 이전 횟수를 허용한다.
         public async Task Submit_FinalUpdateFails_RetainsKnownPersistenceAndWarns()
         {
             var f = new Fixture(); f.Outbox.FailSave = n => n > 1; f.Transport.Respond(202);

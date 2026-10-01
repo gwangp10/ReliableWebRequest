@@ -44,7 +44,7 @@ namespace ReliableWebRequest.Tests
             RetryClassifier.Classify(new AttemptOutcome(AttemptOutcomeKind.Response, Fixture.Response(status), null)), Is.EqualTo(RetryDecision.Succeed));
 
         [TestCase(408), TestCase(429), TestCase(500), TestCase(502), TestCase(503), TestCase(504)]
-        [TestCase(-1), TestCase(-2)] // C2; negative rows are normalized non-response outcomes.
+        [TestCase(-1), TestCase(-2)] // C2: 음수는 응답이 아닌 정규화된 결과를 나타낸다.
         public void Classifier_TransientOutcome_Retries(int status)
         {
             var outcome = status == -1 ? new AttemptOutcome(AttemptOutcomeKind.TransportError, null, new HttpRequestException()) :
@@ -162,7 +162,7 @@ namespace ReliableWebRequest.Tests
     [TestFixture]
     public sealed class AttemptTimeoutFactoryTests
     {
-        [TestCase(true), TestCase(false)] // S8, W6: production factory contract
+        [TestCase(true), TestCase(false)] // S8, W6: 실제 팩터리 계약
         public async Task TimeoutFactory_LinksCallerAndSchedulesTimeout(bool cancelCaller)
         {
             using var caller = new CancellationTokenSource();
@@ -193,7 +193,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(p.MaxOutboxAttempts, Is.EqualTo(20));
             Assert.That(p.MaxInlineRetryAfter, Is.EqualTo(TimeSpan.FromSeconds(30)));
         }
-        [Test] // Contract.SubmitResult; V11 replaces factory helpers with constructor.
+        [Test] // Contract.SubmitResult: V11에 따라 팩터리 대신 생성자를 검증한다.
         public void SubmitResult_Constructor_PreservesAllValues()
         {
             foreach (var kind in Enum.GetValues<SubmitResultKind>())

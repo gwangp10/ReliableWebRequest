@@ -1,8 +1,8 @@
 # 명세 → 테스트 메서드
 
-최종 규칙 W1–W7을 적용했습니다. **56개 테스트 메서드**이며 `[TestCase]` 행을 확장하면 97개 실행 케이스입니다. 최신 명세 ID에 테스트가 없는 항목은 없습니다. S11f는 W1에서 명시적으로 대체되었으며 폐기된 동작을 별도로 강제하지 않습니다. Contract의 SubmitResult 팩터리 테스트는 V11에 따라 생성자 테스트로 대체했습니다.
+최종 규칙 W1–W7과 W3의 대기 중 취소 개정을 적용했습니다. **62개 테스트 메서드**이며 `[TestCase]` 행을 확장하면 115개 실행 케이스입니다. 최신 명세 ID에 테스트가 없는 항목은 없습니다. S11f는 W1에서 명시적으로 대체되었으며 폐기된 동작을 별도로 강제하지 않습니다. Contract의 SubmitResult 팩터리 테스트는 V11에 따라 생성자 테스트로 대체했습니다.
 
-메서드는 `tests/ReliableWebRequest.Tests/`의 ComponentTests.cs, PurchaseSubmitterTests.cs, FlushOutboxTests.cs에 있습니다. 아래 표에서 괄호는 TestCase 인자입니다.
+메서드는 `tests/ReliableWebRequest.Tests/`의 ComponentTests.cs, PurchaseSubmitterTests.cs, FlushOutboxTests.cs, ReviewRegressionTests.cs에 있습니다. 아래 표에서 괄호는 TestCase 인자입니다.
 
 | 명세 ID | 테스트 메서드 |
 |---|---|
@@ -75,3 +75,16 @@
 | W5 | Flush_LoadFailure_PropagatesBeforeAnySend; Flush_ItemStoreFailure_CountsOutcomeAndContinues |
 | W6 | TimeoutFactory_LinksCallerAndSchedulesTimeout(true: initially uncanceled with 10-minute timeout, then caller cancellation / false: real 50ms timeout, wait up to 5s); S7b, S8; Submit_RetriesOn503_ThenSucceedsWithBackoff; flush disposal checks |
 | W7 | K1 UTF-8 vectors; S1 shared call journal; Submit_PendingWriteAheadSave_DoesNotSendUntilSaveCompletes; S4b |
+
+코드 리뷰 회귀 테스트(ReviewRegressionTests.cs):
+
+| 리뷰 항목 / 규칙 | 새 테스트 메서드 | 실행 케이스 / 검증 내용 |
+|---|---|---|
+| 1 / W1, W5 | ThrowingLogger_DoesNotInterruptPersistenceResultsOrFlushProgress | 1: 로그가 항상 던져도 초기 저장 실패 이후 최종 저장·제거·결과 반환 및 저장소 오류 이후 flush 진행 |
+| 2 / W1 | DependencyFailure_PreservesConfirmedOutcomeOrPerformsFinalUpsert | 10: 대기 실패, 첫 시계 조회 실패, 전송 후 시계 실패; 성공/거절 유지, 최종 upsert 성공/실패, 이전 시각 사용, flush 최종 처리 |
+| 3 / W3 개정, W4 | CancelDuringInlineWait_PreservesScheduleAndFlushSkipsUntilDue | 2: Retry-After와 백오프 대기 중 취소 시 NextAttemptAt 보존 및 기한 전 flush 건너뛰기 |
+| 4 / W4 | UnrepresentableRetryAfter_FallsBackToBackoffWithoutStoppingProgress | 2: 파서가 허용하되 날짜 범위를 넘는 지연을 Submit/Flush 예약에서 백오프로 대체 |
+| 5 / L1–L4 | Redactor_DecodesNestedSensitiveNamesAndPreservesJsonAndFormBoundaries | 1: 이스케이프·대소문자·중첩 속성명, 비문자열 민감 값, JSON 안의 form 문자열, 구분자 보존과 멱등성 |
+| 6 / W3, W5 | Flush_CancellationBeforeSend_DoesNotCountOrResaveUnsentItem | 2: 앞선 성공 0/1건 이후 전송 직전 취소, 기존 집계만 반환, 미전송 항목 무변경 및 CTS 해제 |
+
+W3 개정은 전송 전/중 취소의 `NextAttemptAt = now`를 유지하고, **인라인 대기 중 취소만 기존 예약 시각을 보존**합니다. 기존 S7 테스트는 대기 중 기한을 단정하지 않았으므로 기존 assertion 변경 없이 새 회귀 테스트로 보완했습니다.

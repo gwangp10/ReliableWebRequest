@@ -187,7 +187,7 @@ namespace ReliableWebRequest.Tests
             Assert.That(Timeouts.Sources.Select(s => s.DisposeCount), Is.All.EqualTo(1));
             Assert.That(Timeouts.Timeouts, Is.All.EqualTo(Policy.PerAttemptTimeout));
         }
-        // A faulted operation wins over the start signal, preserving its original stub failure.
+        // 작업 실패가 시작 신호보다 먼저면 원래 스텁 예외를 보존한다.
         public static async Task AwaitStarted(Task operation, Task started)
         {
             var winner = await Task.WhenAny(operation, started).WaitAsync(TimeSpan.FromSeconds(5));
