@@ -1,6 +1,5 @@
   복원할 프로젝트를 확인하는 중...
-  D:\GitHubDeskTop\ReliableWebRequest\tests\ReliableWebRequest.Tests\ReliableWebRequest.Tests.csproj을(를) 414밀리초 동안 복원했습니다.
-  D:\GitHubDeskTop\ReliableWebRequest\src\ReliableWebRequest\ReliableWebRequest.csproj을(를) 414밀리초 동안 복원했습니다.
+  복원할 모든 프로젝트가 최신 상태입니다.
   ReliableWebRequest -> D:\GitHubDeskTop\ReliableWebRequest\src\ReliableWebRequest\bin\Debug\netstandard2.1\ReliableWebRequest.dll
   ReliableWebRequest.Tests -> D:\GitHubDeskTop\ReliableWebRequest\tests\ReliableWebRequest.Tests\bin\Debug\net10.0\ReliableWebRequest.Tests.dll
 
@@ -8,4 +7,4 @@
     경고 0개
     오류 0개
 
-경과 시간: 00:00:05.01
+경과 시간: 00:00:01.89

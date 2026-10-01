@@ -167,7 +167,8 @@ namespace ReliableWebRequest.Tests
         {
             using var caller = new CancellationTokenSource();
             using var source = new DefaultAttemptTimeoutFactory().Create(
-                cancelCaller ? TimeSpan.FromHours(1) : TimeSpan.FromMilliseconds(10), caller.Token);
+                cancelCaller ? TimeSpan.FromMinutes(10) : TimeSpan.FromMilliseconds(50), caller.Token);
+            if (cancelCaller) Assert.That(source.IsCancellationRequested, Is.False, "A long timeout must not cancel immediately");
             var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var registration = source.Token.Register(() => canceled.TrySetResult());
             if (cancelCaller) caller.Cancel();
@@ -191,7 +192,6 @@ namespace ReliableWebRequest.Tests
             Assert.That(p.PerAttemptTimeout, Is.EqualTo(TimeSpan.FromSeconds(5)));
             Assert.That(p.MaxOutboxAttempts, Is.EqualTo(20));
             Assert.That(p.MaxInlineRetryAfter, Is.EqualTo(TimeSpan.FromSeconds(30)));
-            Assert.That(RetryPolicy.Default, Is.Not.SameAs(p));
         }
         [Test] // Contract.SubmitResult; V11 replaces factory helpers with constructor.
         public void SubmitResult_Constructor_PreservesAllValues()

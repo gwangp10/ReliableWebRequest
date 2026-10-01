@@ -73,6 +73,8 @@ namespace ReliableWebRequest.Tests
         public bool FailGet { get; set; }
         public bool FailLoad { get; set; }
         public int SaveCalls { get; private set; }
+        public TaskCompletionSource? SaveGate { get; set; }
+        public TaskCompletionSource SaveStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public MemoryOutbox(CallJournal journal) => Journal = journal;
         public Task<PendingSubmission?> GetAsync(string key)
         {
@@ -82,15 +84,16 @@ namespace ReliableWebRequest.Tests
             Journal.Add("Get:complete");
             return Task.FromResult(item);
         }
-        public Task SaveAsync(PendingSubmission item)
+        public async Task SaveAsync(PendingSubmission item)
         {
             Journal.Add("Save:start");
             SaveCalls++;
             if (FailSave?.Invoke(SaveCalls) == true) throw new IOException("save failure");
+            SaveStarted.TrySetResult();
+            if (SaveGate != null) await SaveGate.Task;
             Saves.Add(item);
             Items[item.IdempotencyKey] = item;
             Journal.Add("Save:complete");
-            return Task.CompletedTask;
         }
         public Task<IReadOnlyList<PendingSubmission>> LoadAllAsync()
         {
@@ -167,8 +170,8 @@ namespace ReliableWebRequest.Tests
         public Fixture() { Transport = new FakeTransport(Journal); Outbox = new MemoryOutbox(Journal); }
         public PurchaseSubmitter Create(ITransport? transport = null) =>
             new(transport ?? Transport, Policy, Delay, Clock, new FixedRandom(), Log, Outbox, Timeouts, Endpoint);
-        public static RetryPolicy PolicyWith(double jitter = 0) =>
-            new(5, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10), jitter, TimeSpan.FromSeconds(5), 20, TimeSpan.FromSeconds(30));
+        public static RetryPolicy PolicyWith(double jitter = 0, int maxAttempts = 5) =>
+            new(maxAttempts, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10), jitter, TimeSpan.FromSeconds(5), 20, TimeSpan.FromSeconds(30));
         public static TransportResponse Response(int status, string? retryAfter = null, string body = "") =>
             new(status, retryAfter == null ? new Dictionary<string, string>() : new() { ["Retry-After"] = retryAfter }, body);
         public PendingSubmission Seed(string key, int count = 0, int dueSeconds = 0, int createdSeconds = 0)

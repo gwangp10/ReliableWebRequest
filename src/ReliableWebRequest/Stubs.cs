@@ -78,6 +78,7 @@ namespace ReliableWebRequest
         /// 기타는 저장 여부에 따라 DeferredToOutbox/FailedNotPersisted. 모든 저장소 오류는 Warning으로 잡는다.
         /// IsPersisted는 저장 성공 뒤 제거 성공이 없는 상태이며 제거 실패 자체로 true가 되지 않는다.
         /// S4b: 409는 키를 포함하는 Error 한 줄. S10: 로그 민감 값 정제.
+        /// S12: HTTP method POST
         /// S14: 시도별 Info 한 줄(번호/종류/키), 최종 결과 한 줄. S12: 영수증 JSON/application/json.</summary>
         public Task<SubmitResult> SubmitAsync(PurchaseReceipt receipt, CancellationToken ct)
         { throw new NotImplementedException("TODO(user): S1-S16 W1-W7"); }

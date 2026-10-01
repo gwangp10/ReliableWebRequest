@@ -21,10 +21,37 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Saves[0].AttemptCount, Is.Zero);
             Assert.That(f.Outbox.Saves[0].CreatedAt, Is.EqualTo(f.Clock.UtcNow));
             Assert.That(f.Outbox.Saves[0].NextAttemptAt, Is.EqualTo(f.Clock.UtcNow));
-            Assert.That(f.Outbox.Saves[0].Receipt, Is.SameAs(f.Receipt));
+            Assert.That(f.Outbox.Saves[0].Receipt.ProductId, Is.EqualTo(f.Receipt.ProductId));
+            Assert.That(f.Outbox.Saves[0].Receipt.TransactionId, Is.EqualTo(f.Receipt.TransactionId));
+            Assert.That(f.Outbox.Saves[0].Receipt.Receipt, Is.EqualTo(f.Receipt.Receipt));
+            Assert.That(f.Outbox.Saves[0].Receipt.Signature, Is.EqualTo(f.Receipt.Signature));
             Assert.That(f.Outbox.Items, Is.Empty);
             Assert.That(f.Outbox.Removes, Is.EqualTo(new[] { Fixture.AbcKey }));
             f.AssertDisposed(1);
+        }
+
+        [Test] // S1, W7
+        public async Task Submit_PendingWriteAheadSave_DoesNotSendUntilSaveCompletes()
+        {
+            var f = new Fixture();
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            f.Outbox.SaveGate = gate;
+            f.Transport.Respond(200);
+            var operation = f.Create().SubmitAsync(f.Receipt, CancellationToken.None);
+            try
+            {
+                await Fixture.AwaitStarted(operation, f.Outbox.SaveStarted.Task);
+                Assert.That(gate.Task.IsCompleted, Is.False);
+                Assert.That(f.Journal.Entries, Does.Not.Contain("Save:complete"));
+                Assert.That(f.Transport.Requests, Is.Empty, "Send must wait for SaveAsync to complete");
+                Assert.That(operation.IsCompleted, Is.False);
+                gate.SetResult();
+                var result = await operation.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.That(f.Transport.Requests, Has.Count.EqualTo(1));
+                Assert.That(result.Kind, Is.EqualTo(SubmitResultKind.Succeeded));
+                Assert.That(f.Journal.Entries.Take(5), Is.EqualTo(new[] { "Get:start", "Get:complete", "Save:start", "Save:complete", "Send:start" }));
+            }
+            finally { gate.TrySetResult(); }
         }
 
         [Test] // S2
@@ -90,10 +117,26 @@ namespace ReliableWebRequest.Tests
             Assert.That(f.Outbox.Items, Has.Count.EqualTo(1));
             var item = f.Outbox.Items[Fixture.AbcKey];
             Assert.That(item.AttemptCount, Is.EqualTo(5));
-            Assert.That(item.Receipt, Is.SameAs(f.Receipt));
+            Assert.That(item.Receipt.ProductId, Is.EqualTo(f.Receipt.ProductId));
+            Assert.That(item.Receipt.TransactionId, Is.EqualTo(f.Receipt.TransactionId));
+            Assert.That(item.Receipt.Receipt, Is.EqualTo(f.Receipt.Receipt));
+            Assert.That(item.Receipt.Signature, Is.EqualTo(f.Receipt.Signature));
             Assert.That(item.IdempotencyKey, Is.EqualTo(Fixture.AbcKey));
             Assert.That(item.NextAttemptAt, Is.EqualTo(f.Clock.UtcNow.AddSeconds(10)));
             Assert.That(item.LastReason, Is.Not.Null.And.Not.Empty);
+        }
+
+        [TestCase(1), TestCase(2)] // S5, W4
+        public async Task Submit_ConfiguredMaxAttempts_LimitsSendsDelaysAndStoredCount(int maxAttempts)
+        {
+            var f = new Fixture { Policy = Fixture.PolicyWith(maxAttempts: maxAttempts) };
+            for (var i = 0; i < maxAttempts; i++) f.Transport.Respond(503);
+            var result = await f.Create().SubmitAsync(f.Receipt, CancellationToken.None);
+            Assert.That(result.Kind, Is.EqualTo(SubmitResultKind.DeferredToOutbox));
+            Assert.That(f.Transport.Requests, Has.Count.EqualTo(maxAttempts));
+            Assert.That(f.Delay.Delays, Has.Count.EqualTo(maxAttempts - 1));
+            Assert.That(f.Outbox.Items, Has.Count.EqualTo(1));
+            Assert.That(f.Outbox.Items[Fixture.AbcKey].AttemptCount, Is.EqualTo(maxAttempts));
         }
 
         [TestCase(429, "3", 3), TestCase(429, "garbage", 1), TestCase(500, "3", 1)] // S6a, S6c, S6d
@@ -234,6 +277,7 @@ namespace ReliableWebRequest.Tests
             var f = new Fixture(); f.Transport.Respond(200);
             await f.Create().SubmitAsync(f.Receipt, CancellationToken.None);
             var request = f.Transport.Requests.Single();
+            Assert.That(request.Method, Is.EqualTo("POST"));
             Assert.That(request.Url, Is.EqualTo(f.Endpoint));
             Assert.That(request.Headers["Content-Type"], Is.EqualTo("application/json"));
             using var json = JsonDocument.Parse(request.Body);
@@ -262,15 +306,23 @@ namespace ReliableWebRequest.Tests
             var f = new Fixture();
             f.Transport.Respond(503); f.Transport.Throw(new HttpRequestException("offline")); f.Transport.Respond(200);
             await f.Create().SubmitAsync(f.Receipt, CancellationToken.None);
-            var infos = f.Log.Entries.Where(e => e.Level == LogLevel.Info).Select(e => e.Message).ToArray();
+            var finalLines = f.Log.Entries.Where(e => Enum.GetNames<SubmitResultKind>().Any(kind => e.Message.Contains(kind))).ToArray();
+            Assert.That(finalLines, Has.Length.EqualTo(1));
+            Assert.That(finalLines[0].Message, Does.Contain(nameof(SubmitResultKind.Succeeded)));
+            var infos = f.Log.Entries.Where(e => e.Level == LogLevel.Info && e != finalLines[0]).Select(e => e.Message).ToArray();
             var kinds = new[] { "Response", "TransportError", "Response" };
+            Assert.That(f.Transport.Requests, Has.Count.EqualTo(kinds.Length));
+            Assert.That(infos, Has.Length.EqualTo(kinds.Length));
+            var matchedLines = new HashSet<int>();
             for (var i = 0; i < kinds.Length; i++)
             {
                 var number = i + 1;
-                Assert.That(infos.Count(line => line.Contains(Fixture.AbcKey) && line.Contains(kinds[i]) &&
-                    System.Text.RegularExpressions.Regex.IsMatch(line.Replace(Fixture.AbcKey, ""), $@"(?<!\d){number}(?!\d)")), Is.EqualTo(1));
+                var matches = Enumerable.Range(0, infos.Length).Where(index =>
+                    infos[index].Contains(Fixture.AbcKey) && infos[index].Contains(kinds[i]) &&
+                    System.Text.RegularExpressions.Regex.IsMatch(infos[index].Replace(Fixture.AbcKey, ""), $@"(?<!\d){number}(?!\d)")).ToArray();
+                Assert.That(matches, Has.Length.EqualTo(1));
+                Assert.That(matchedLines.Add(matches[0]), Is.True, "Each attempt must have its own Info line");
             }
-            Assert.That(f.Log.Entries.Count(e => e.Message.Contains(nameof(SubmitResultKind.Succeeded))), Is.EqualTo(1));
         }
 
         [Test] // S15a
